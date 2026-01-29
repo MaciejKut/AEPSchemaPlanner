@@ -2,6 +2,52 @@ import React, { useState, useMemo } from 'react';
 import { ChevronRight, ChevronDown, Check, AlertCircle, Key, List, FileJson } from 'lucide-react';
 import type { Field } from '../types';
 
+// Sample AEP Export Structure for testing
+const SAMPLE_JSON = JSON.stringify([
+    {
+        "id": "https://ns.adobe.com/tenantId/schemas/12345",
+        "title": "Loyalty Member Schema",
+        "type": "object",
+        "description": "Main schema definition"
+    },
+    {
+        "id": "https://ns.adobe.com/tenantId/mixins/67890",
+        "definitions": {
+            "customFields": {
+                "properties": {
+                    "_tenantId": {
+                        "type": "object",
+                        "properties": {
+                            "loyalty": {
+                                "type": "object",
+                                "title": "Loyalty Data",
+                                "properties": {
+                                    "level": { "title": "Tier Level", "type": "string", "enum": ["silver", "gold"] },
+                                    "points": { "title": "Points", "type": "integer" }
+                                }
+                            },
+                            "identification": {
+                                "type": "object",
+                                "title": "Identification",
+                                "properties": {
+                                    "email": { "title": "Email", "type": "string" },
+                                    "crmId": { "title": "CRM ID", "type": "string" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    {
+        "@type": "xdm:descriptorIdentity",
+        "xdm:sourceProperty": "/_tenantId/identification/crmId",
+        "xdm:namespace": "CRM",
+        "meta:resourceType": "descriptors"
+    }
+], null, 2);
+
 export const SchemaReviewer: React.FC = () => {
     const [jsonInput, setJsonInput] = useState('');
     const [rootNode, setRootNode] = useState<any>(null);
@@ -15,7 +61,7 @@ export const SchemaReviewer: React.FC = () => {
             // --- 1. EXTRACTION LOGIC (Keep finding Leaf Nodes) ---
 
             // Helper to process properties recursively
-            const processProperties = (properties: any, prefix = '') => {
+            const processProperties = (properties: Record<string, any>, prefix = '') => {
                 if (!properties) return;
                 Object.keys(properties).forEach(key => {
                     const prop = properties[key];
@@ -39,9 +85,9 @@ export const SchemaReviewer: React.FC = () => {
 
             if (Array.isArray(parsed)) {
                 // Find descriptors for identities
-                const descriptors = parsed.filter(p => p['meta:resourceType'] === 'descriptors');
+                const descriptors = parsed.filter((p: any) => p['meta:resourceType'] === 'descriptors');
 
-                parsed.forEach(mixin => {
+                parsed.forEach((mixin: any) => {
                     // Check for definition structure
                     if (mixin.definitions && mixin.definitions.customFields) {
                         const customFields = mixin.definitions.customFields.properties;
@@ -55,7 +101,7 @@ export const SchemaReviewer: React.FC = () => {
                 });
 
                 // Add identity info
-                descriptors.forEach(desc => {
+                descriptors.forEach((desc: any) => {
                     if (desc['@type'] === 'xdm:descriptorIdentity') {
                         allFields.forEach((f: any) => {
                             if (desc['xdm:sourceProperty'] && desc['xdm:sourceProperty'].endsWith(f.path)) { // Use path matching for accuracy
@@ -134,14 +180,24 @@ export const SchemaReviewer: React.FC = () => {
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ fontWeight: 600, color: '#e2e8f0' }}>JSON Input</span>
-                        <button
-                            onClick={handleAnalyze}
-                            style={{
-                                background: '#3b82f6', color: 'white', border: 'none', padding: '6px 16px', borderRadius: '4px', cursor: 'pointer', fontWeight: 600
-                            }}
-                        >
-                            Analyze
-                        </button>
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            <button
+                                onClick={() => setJsonInput(SAMPLE_JSON)}
+                                style={{
+                                    background: 'transparent', color: '#94a3b8', border: '1px solid #334155', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem'
+                                }}
+                            >
+                                Load Sample
+                            </button>
+                            <button
+                                onClick={handleAnalyze}
+                                style={{
+                                    background: '#3b82f6', color: 'white', border: 'none', padding: '6px 16px', borderRadius: '4px', cursor: 'pointer', fontWeight: 600
+                                }}
+                            >
+                                Analyze
+                            </button>
+                        </div>
                     </div>
                     <textarea
                         value={jsonInput}

@@ -6,7 +6,7 @@ import { DefinitionEditor } from './components/DefinitionEditor';
 import { useProject } from './context/ProjectContext';
 import { generateGraph } from './utils/graphGenerator';
 import { generateMermaid, generateDOT } from './utils/exporters';
-import { Layout, PenTool, Play, Copy, Share2, ClipboardCheck } from 'lucide-react';
+import { Layout, PenTool, Play, Copy, Share2, ClipboardCheck, Save, Upload } from 'lucide-react';
 import { SchemaReviewer } from './components/SchemaReviewer';
 
 import './App.css';
@@ -20,7 +20,7 @@ function App() {
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
 
   // Global Project State
-  const { schemas, datasets, ingestNodes } = useProject();
+  const { schemas, datasets, ingestNodes, loadProject } = useProject();
 
   // --- GENERATE GRAPH ON MODE SWITCH ---
   useEffect(() => {
@@ -30,6 +30,53 @@ function App() {
       setEdges(newEdges);
     }
   }, [mode, schemas, datasets, ingestNodes, setNodes, setEdges]);
+
+  // --- PERSISTENCE HANDLERS ---
+  const handleSaveProject = () => {
+    const projectState = {
+      schemas,
+      datasets,
+      ingestNodes,
+      version: '1.0',
+      timestamp: new Date().toISOString()
+    };
+
+    const blob = new Blob([JSON.stringify(projectState, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `aep-project-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleLoadProject = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const content = e.target?.result as string;
+        const state = JSON.parse(content);
+
+        if (state.schemas && state.datasets && state.ingestNodes) {
+          loadProject(state);
+          alert('Project loaded successfully!');
+        } else {
+          alert('Invalid project file format.');
+        }
+      } catch (err) {
+        console.error(err);
+        alert('Failed to parse project file.');
+      }
+    };
+    reader.readAsText(file);
+    // Reset input
+    event.target.value = '';
+  };
 
   // --- EXPORT HANDLERS ---
   const handleExport = (type: 'mermaid' | 'dot') => {
@@ -66,6 +113,24 @@ function App() {
             <span style={{ fontSize: '0.65rem', opacity: 0.6, color: '#fbbf24' }}>by Maciej Kutzmann</span>
           </div>
           <span style={{ fontSize: '0.8rem', opacity: 0.3, border: '1px solid #333', padding: '2px 6px', borderRadius: '4px' }}>v0.3</span>
+
+          {/* Persistence Actions */}
+          <div style={{ marginLeft: '20px', display: 'flex', gap: '8px' }}>
+            <button
+              onClick={handleSaveProject}
+              title="Save Project"
+              style={{ background: 'transparent', border: '1px solid #475569', color: '#cbd5e1', padding: '6px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+            >
+              <Save size={16} />
+            </button>
+            <label
+              title="Load Project"
+              style={{ background: 'transparent', border: '1px solid #475569', color: '#cbd5e1', padding: '6px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+            >
+              <Upload size={16} />
+              <input type="file" accept=".json" onChange={handleLoadProject} style={{ display: 'none' }} />
+            </label>
+          </div>
         </div>
 
         <div style={{ display: 'flex', gap: '1px', background: '#333', padding: '2px', borderRadius: '6px' }}>

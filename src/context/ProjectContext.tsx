@@ -20,6 +20,8 @@ interface ProjectContextType extends ProjectState {
     addIngestNode: (node: IngestNode) => void;
     updateIngestNode: (node: IngestNode) => void;
     deleteIngestNode: (id: string) => void;
+
+    loadProject: (state: ProjectState) => void;
 }
 
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
@@ -29,6 +31,13 @@ export const ProjectProvider: React.FC<{ children: ReactNode }> = ({ children })
     const [schemas, setSchemas] = useState<Schema[]>(mockSchemas);
     const [datasets, setDatasets] = useState<Dataset[]>(mockDatasets);
     const [ingestNodes, setIngestNodes] = useState<IngestNode[]>(mockIngestNodes as IngestNode[]);
+
+    const loadProject = (state: ProjectState) => {
+        setSchemas(state.schemas || []);
+        setDatasets(state.datasets || []);
+        setIngestNodes(state.ingestNodes || []);
+    };
+
 
     // --- Schema Actions ---
     const addSchema = (schema: Schema) => {
@@ -84,7 +93,8 @@ export const ProjectProvider: React.FC<{ children: ReactNode }> = ({ children })
             deleteDataset,
             addIngestNode,
             updateIngestNode,
-            deleteIngestNode
+            deleteIngestNode,
+            loadProject
         }}>
             {children}
         </ProjectContext.Provider>
