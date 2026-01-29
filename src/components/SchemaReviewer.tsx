@@ -4,114 +4,120 @@ import type { Field } from '../types';
 
 export const SchemaReviewer: React.FC = () => {
     const [jsonInput, setJsonInput] = useState('');
-    const [fields, setFields] = useState<Field[] | null>(null);
+    const [rootNode, setRootNode] = useState<any>(null);
     const [error, setError] = useState<string | null>(null);
 
     const handleAnalyze = () => {
         try {
             const parsed = JSON.parse(jsonInput);
-            
-            // Handle array of schema mixins/definitions typical in AEP exports
-            // Or single schema object
-            // let rootSchema = Array.isArray(parsed) ? parsed.find(item => item.type === 'object' && item.title) : parsed;
-            
-            // If it's an array, it might be the full export format with mixins
-            // We need to aggregate fields from all mixins if that's the case
             const allFields: Field[] = [];
-            
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            const extractFieldsFromNode = (node: any, pathPrefix: string = '') => {
-                 if (!node || !node.definitions || !node.definitions.customFields) return;
-                 const customFields = node.definitions.customFields.properties;
-                 
-                  Object.keys(customFields).forEach(tenantId => {
-                      if(customFields[tenantId]) {
-                         const props = customFields[tenantId].properties;
-                          if(props) {
-                             Object.keys(props).forEach(key => {
-                                 const group = props[key];
-                                 if(!group.properties) return;
-                                 
-                                 Object.keys(group.properties).forEach(fieldKey => {
-                                      const field = group.properties[fieldKey];
-                                     const fullPath = pathPrefix ? `${pathPrefix}.${key}.${fieldKey}` : `${key}.${fieldKey}`;
-                                      allFields.push({
-                                         name: field.title || fieldKey,
-                                         type: field.type,
-                                         path: fullPath,
-                                         isRequired: false, // Default
-                                         isIdentity: false // Default
-                                      });
-                                 });
-                             });
-                          }
-                      }
-                  })
-            }
 
-             // Helper to process properties recursively
+            // --- 1. EXTRACTION LOGIC (Keep finding Leaf Nodes) ---
+
+            // Helper to process properties recursively
             const processProperties = (properties: any, prefix = '') => {
-                 if (!properties) return;
-                 Object.keys(properties).forEach(key => {
+                if (!properties) return;
+                Object.keys(properties).forEach(key => {
                     const prop = properties[key];
                     const currentPath = prefix ? `${prefix}.${key}` : key;
-                    
+
                     if (prop.type === 'object' && prop.properties) {
-                         processProperties(prop.properties, currentPath);
+                        processProperties(prop.properties, currentPath);
                     } else {
-                         allFields.push({
-                             name: prop.title || key,
-                             type: prop.type,
-                             path: currentPath,
-                             isRequired: false
-                         });
+                        // It's a leaf field (or array)
+                        allFields.push({
+                            name: prop.title || key,
+                            type: prop.type,
+                            path: currentPath,
+                            isRequired: false, // Will calculate later if possible
+                            // Preserve original prop for metadata extraction
+                            original: prop
+                        } as any);
                     }
-                 });
+                });
             };
 
-
             if (Array.isArray(parsed)) {
-                // Find main schema definition
-                // const mainSchema = parsed.find(p => p.type === 'object' && p['meta:resourceType'] === 'schemas');
-                 // Find descriptors for identities
-                 const descriptors = parsed.filter(p => p['meta:resourceType'] === 'descriptors');
+                // Find descriptors for identities
+                const descriptors = parsed.filter(p => p['meta:resourceType'] === 'descriptors');
 
                 parsed.forEach(mixin => {
-                     // Check for definition structure
-                     if (mixin.definitions && mixin.definitions.customFields) {
-                          // This logic handles the specific nested structure seen in the provided JSON
-                           const customFields = mixin.definitions.customFields.properties;
-                            Object.values(customFields).forEach((tenantObj: any) => {
-                                if (tenantObj.properties) {
-                                     processProperties(tenantObj.properties);
-                                }
-                            });
-                     }
-                });
-                
-                // Add identity info
-                 descriptors.forEach(desc => {
-                     if (desc['@type'] === 'xdm:descriptorIdentity') {
-                         // Simple matching for now
-                         allFields.forEach(f => {
-                             if (desc['xdm:sourceProperty'] && desc['xdm:sourceProperty'].endsWith(f.name)) {
-                                 f.isIdentity = true;
-                             }
+                    // Check for definition structure
+                    if (mixin.definitions && mixin.definitions.customFields) {
+                        const customFields = mixin.definitions.customFields.properties;
+                        Object.entries(customFields).forEach(([tenantKey, tenantObj]: [string, any]) => {
+                            if (tenantObj.properties) {
+                                // We want the path to start with the tenant ID
+                                processProperties(tenantObj.properties, tenantKey);
+                            }
                         });
-                     }
-                 });
+                    }
+                });
 
+                // Add identity info
+                descriptors.forEach(desc => {
+                    if (desc['@type'] === 'xdm:descriptorIdentity') {
+                        allFields.forEach((f: any) => {
+                            if (desc['xdm:sourceProperty'] && desc['xdm:sourceProperty'].endsWith(f.path)) { // Use path matching for accuracy
+                                f.isIdentity = true;
+                            }
+                        });
+                    }
+                });
 
             } else if (parsed.properties) {
-                 processProperties(parsed.properties);
+                processProperties(parsed.properties);
             }
 
-            setFields(allFields);
+            // --- 2. RECONSTRUCTION LOGIC (Build Tree from Paths) ---
+
+            const newRoot = { title: 'Schema Root', type: 'object', properties: {} };
+
+            allFields.forEach((field: any) => {
+                const parts = field.path.split('.');
+                let currentLevel = newRoot.properties;
+
+                parts.forEach((part: string, index: number) => {
+                    const isLast = index === parts.length - 1;
+
+                    if (!currentLevel[part]) {
+                        currentLevel[part] = {
+                            title: part, // Default title to key
+                            type: 'object',
+                            properties: {}
+                        };
+                    }
+
+                    if (isLast) {
+                        // Merge leaf data
+                        currentLevel[part] = {
+                            ...currentLevel[part],
+                            ...field.original, // properties like enum, type, title
+                            type: field.type,
+                            title: field.name,
+                            'xdm:identity': field.isIdentity
+                        };
+                        // Cleanup internal props if needed
+                        delete currentLevel[part].original;
+                    }
+
+                    // Move down
+                    if (!isLast) {
+                        // Ensure properties exists if we created it as a placeholder
+                        if (!currentLevel[part].properties) {
+                            currentLevel[part].properties = {};
+                        }
+                        currentLevel = currentLevel[part].properties;
+                    }
+                });
+            });
+
+            setRootNode(newRoot);
             setError(null);
         } catch (e) {
             console.error(e);
             setError('Invalid JSON or Schema format');
-            setFields(null);
+            setRootNode(null);
         }
     };
 
@@ -158,45 +164,13 @@ export const SchemaReviewer: React.FC = () => {
 
                 {/* Tree View Area */}
                 <div style={{ flex: 2, background: '#1e293b', borderRadius: '8px', padding: '20px', overflowY: 'auto', border: '1px solid #334155' }}>
-                    {fields ? (
-                         <div>
-                            <h3 style={{color:'white', marginBottom:'15px'}}>Schema Analysis</h3>
-                            
-                             <div style={{marginBottom: '20px'}}>
-                                <h4 style={{color:'#94a3b8', fontSize: '0.9rem', textTransform:'uppercase'}}>Identities</h4>
-                                {fields.filter(f => f.isIdentity).length > 0 ? (
-                                    <div style={{display:'flex', flexDirection:'column', gap:'5px', marginTop:'5px'}}>
-                                        {fields.filter(f => f.isIdentity).map((f, i) => (
-                                             <div key={i} style={{background: 'rgba(59, 130, 246, 0.2)', color:'#60a5fa', padding:'5px 10px', borderRadius:'4px', display:'flex', alignItems:'center', gap:'8px'}}>
-                                                <Key size={14}/> {f.name} <span style={{fontSize:'0.8em', opacity:0.7}}>({f.path})</span>
-                                             </div>
-                                        ))}
-                                    </div>
-                                ) : <span style={{color:'#64748b', fontSize:'0.9rem'}}>No identities found</span>}
-                             </div>
-
-                             <div>
-                                <h4 style={{color:'#94a3b8', fontSize: '0.9rem', textTransform:'uppercase'}}>Fields ({fields.length})</h4>
-                                <div style={{display:'flex', flexDirection:'column', gap:'2px', marginTop:'5px'}}>
-                                    {fields.map((field, idx) => (
-                                        <div key={idx} style={{
-                                            padding: '8px', 
-                                            borderRadius: '4px', 
-                                            background: idx % 2 === 0 ? 'rgba(255,255,255,0.03)' : 'transparent',
-                                            display: 'flex',
-                                            justifyContent: 'space-between'
-                                        }}>
-                                            <span style={{color: '#e2e8f0'}}>{field.name}</span>
-                                            <div style={{display:'flex', gap:'10px'}}>
-                                                <span style={{color: '#94a3b8', fontSize:'0.85rem'}}>{field.type}</span>
-                                                <span style={{color: '#64748b', fontSize:'0.8rem', fontFamily:'monospace'}}>{field.path}</span>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                             </div>
-
-                         </div>
+                    {rootNode ? (
+                        <SchemaNode
+                            name={rootNode.title || "Root"}
+                            node={rootNode}
+                            isRequired={true}
+                            isRoot={true}
+                        />
                     ) : (
                         <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', flexDirection: 'column', gap: '10px' }}>
                             <FileJson size={48} opacity={0.5} />
@@ -227,7 +201,6 @@ const SchemaNode: React.FC<SchemaNodeProps> = ({ name, node, isRequired, isRoot 
     // Metadata Checks
     const enums = node.enum || (node['meta:enum'] ? Object.keys(node['meta:enum'] as Record<string, string>) : null);
     const isIdentity = node['xdm:identity'] || name === '_id' || name === 'identityMap';
-    // const description = node.description; // Unused for now to save space
 
     const toggle = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -237,7 +210,7 @@ const SchemaNode: React.FC<SchemaNodeProps> = ({ name, node, isRequired, isRoot 
     // Calculate Children
     const childrenRequest = useMemo(() => {
         if (isObject) {
-            return Object.entries(node.properties).map(([key, value]) => ({
+            return Object.entries(node.properties).map(([key, value]: [string, any]) => ({
                 key,
                 value,
                 required: node.required?.includes(key)
@@ -277,7 +250,7 @@ const SchemaNode: React.FC<SchemaNodeProps> = ({ name, node, isRequired, isRoot 
                 {/* Name */}
                 <span style={{
                     fontWeight: isRoot ? 700 : 500,
-                    color: isRoot ? '#f8fafc' : '#cbd5e1',
+                    color: isRoot ? '#f8fafc' : (isObject ? '#93c5fd' : '#cbd5e1'), // Slight color diff for objects
                     fontSize: isRoot ? '1rem' : '0.9rem'
                 }}>
                     {name}
@@ -309,8 +282,6 @@ const SchemaNode: React.FC<SchemaNodeProps> = ({ name, node, isRequired, isRoot 
                     )}
                 </div>
             </div>
-
-            {/* Description (on hover or always visible usually checks cluttered, keeping minimal for now) */}
 
             {/* Children Recursive */}
             {isExpanded && childrenRequest.length > 0 && (

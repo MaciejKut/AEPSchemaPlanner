@@ -1,0 +1,83 @@
+[
+    {
+        "id": "https://ns.adobe.com/tenantId/schemas/12345",
+        "meta:altId": "_tenantId.schemas.12345",
+        "meta:resourceType": "schemas",
+        "title": "Loyalty Member Schema",
+        "type": "object",
+        "description": "Main schema definition",
+        "allOf": [
+            {
+                "$ref": "https://ns.adobe.com/xdm/context/profile"
+            }
+        ]
+    },
+    {
+        "id": "https://ns.adobe.com/tenantId/mixins/67890",
+        "meta:resourceType": "mixins",
+        "title": "Loyalty Details Mixin",
+        "type": "object",
+        "definitions": {
+            "customFields": {
+                "properties": {
+                    "_tenantId": {
+                        "type": "object",
+                        "properties": {
+                            "loyalty": {
+                                "type": "object",
+                                "title": "Loyalty Data",
+                                "properties": {
+                                    "level": {
+                                        "title": "Tier Level",
+                                        "type": "string",
+                                        "enum": [
+                                            "silver",
+                                            "gold",
+                                            "platinum"
+                                        ]
+                                    },
+                                    "points": {
+                                        "title": "Points Balance",
+                                        "type": "integer"
+                                    },
+                                    "joinDate": {
+                                        "title": "Join Date",
+                                        "type": "string",
+                                        "format": "date-time"
+                                    }
+                                }
+                            },
+                            "identification": {
+                                "type": "object",
+                                "title": "Identification",
+                                "properties": {
+                                    "email": {
+                                        "title": "Email Address",
+                                        "type": "string"
+                                    },
+                                    "crmId": {
+                                        "title": "CRM ID",
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    {
+        "@type": "xdm:descriptorIdentity",
+        "xdm:sourceProperty": "/_tenantId/identification/crmId",
+        "xdm:namespace": "CRM",
+        "xdm:isPrimary": true,
+        "meta:resourceType": "descriptors"
+    },
+    {
+        "@type": "xdm:descriptorIdentity",
+        "xdm:sourceProperty": "/_tenantId/identification/email",
+        "xdm:namespace": "Email",
+        "meta:resourceType": "descriptors"
+    }
+]
