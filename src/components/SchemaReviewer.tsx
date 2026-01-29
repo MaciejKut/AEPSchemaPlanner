@@ -1,19 +1,117 @@
 import React, { useState, useMemo } from 'react';
 import { ChevronRight, ChevronDown, Check, AlertCircle, Key, List, FileJson } from 'lucide-react';
+import type { Field } from '../types';
 
 export const SchemaReviewer: React.FC = () => {
     const [jsonInput, setJsonInput] = useState('');
-    const [schema, setSchema] = useState<any>(null);
+    const [fields, setFields] = useState<Field[] | null>(null);
     const [error, setError] = useState<string | null>(null);
 
     const handleAnalyze = () => {
         try {
             const parsed = JSON.parse(jsonInput);
-            setSchema(parsed);
+            
+            // Handle array of schema mixins/definitions typical in AEP exports
+            // Or single schema object
+            // let rootSchema = Array.isArray(parsed) ? parsed.find(item => item.type === 'object' && item.title) : parsed;
+            
+            // If it's an array, it might be the full export format with mixins
+            // We need to aggregate fields from all mixins if that's the case
+            const allFields: Field[] = [];
+            
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            const extractFieldsFromNode = (node: any, pathPrefix: string = '') => {
+                 if (!node || !node.definitions || !node.definitions.customFields) return;
+                 const customFields = node.definitions.customFields.properties;
+                 
+                  Object.keys(customFields).forEach(tenantId => {
+                      if(customFields[tenantId]) {
+                         const props = customFields[tenantId].properties;
+                          if(props) {
+                             Object.keys(props).forEach(key => {
+                                 const group = props[key];
+                                 if(!group.properties) return;
+                                 
+                                 Object.keys(group.properties).forEach(fieldKey => {
+                                      const field = group.properties[fieldKey];
+                                     const fullPath = pathPrefix ? `${pathPrefix}.${key}.${fieldKey}` : `${key}.${fieldKey}`;
+                                      allFields.push({
+                                         name: field.title || fieldKey,
+                                         type: field.type,
+                                         path: fullPath,
+                                         isRequired: false, // Default
+                                         isIdentity: false // Default
+                                      });
+                                 });
+                             });
+                          }
+                      }
+                  })
+            }
+
+             // Helper to process properties recursively
+            const processProperties = (properties: any, prefix = '') => {
+                 if (!properties) return;
+                 Object.keys(properties).forEach(key => {
+                    const prop = properties[key];
+                    const currentPath = prefix ? `${prefix}.${key}` : key;
+                    
+                    if (prop.type === 'object' && prop.properties) {
+                         processProperties(prop.properties, currentPath);
+                    } else {
+                         allFields.push({
+                             name: prop.title || key,
+                             type: prop.type,
+                             path: currentPath,
+                             isRequired: false
+                         });
+                    }
+                 });
+            };
+
+
+            if (Array.isArray(parsed)) {
+                // Find main schema definition
+                // const mainSchema = parsed.find(p => p.type === 'object' && p['meta:resourceType'] === 'schemas');
+                 // Find descriptors for identities
+                 const descriptors = parsed.filter(p => p['meta:resourceType'] === 'descriptors');
+
+                parsed.forEach(mixin => {
+                     // Check for definition structure
+                     if (mixin.definitions && mixin.definitions.customFields) {
+                          // This logic handles the specific nested structure seen in the provided JSON
+                           const customFields = mixin.definitions.customFields.properties;
+                            Object.values(customFields).forEach((tenantObj: any) => {
+                                if (tenantObj.properties) {
+                                     processProperties(tenantObj.properties);
+                                }
+                            });
+                     }
+                });
+                
+                // Add identity info
+                 descriptors.forEach(desc => {
+                     if (desc['@type'] === 'xdm:descriptorIdentity') {
+                         // Simple matching for now
+                         allFields.forEach(f => {
+                             if (desc['xdm:sourceProperty'] && desc['xdm:sourceProperty'].endsWith(f.name)) {
+                                 f.isIdentity = true;
+                             }
+                        });
+                     }
+                 });
+
+
+            } else if (parsed.properties) {
+                 processProperties(parsed.properties);
+            }
+
+            setFields(allFields);
             setError(null);
-        } catch {
-            setError('Invalid JSON');
-            setSchema(null);
+        } catch (e) {
+            console.error(e);
+            setError('Invalid JSON or Schema format');
+            setFields(null);
         }
     };
 
@@ -60,13 +158,45 @@ export const SchemaReviewer: React.FC = () => {
 
                 {/* Tree View Area */}
                 <div style={{ flex: 2, background: '#1e293b', borderRadius: '8px', padding: '20px', overflowY: 'auto', border: '1px solid #334155' }}>
-                    {schema ? (
-                        <SchemaNode
-                            name={schema.title || "Root"}
-                            node={schema}
-                            isRequired={true}
-                            isRoot={true}
-                        />
+                    {fields ? (
+                         <div>
+                            <h3 style={{color:'white', marginBottom:'15px'}}>Schema Analysis</h3>
+                            
+                             <div style={{marginBottom: '20px'}}>
+                                <h4 style={{color:'#94a3b8', fontSize: '0.9rem', textTransform:'uppercase'}}>Identities</h4>
+                                {fields.filter(f => f.isIdentity).length > 0 ? (
+                                    <div style={{display:'flex', flexDirection:'column', gap:'5px', marginTop:'5px'}}>
+                                        {fields.filter(f => f.isIdentity).map((f, i) => (
+                                             <div key={i} style={{background: 'rgba(59, 130, 246, 0.2)', color:'#60a5fa', padding:'5px 10px', borderRadius:'4px', display:'flex', alignItems:'center', gap:'8px'}}>
+                                                <Key size={14}/> {f.name} <span style={{fontSize:'0.8em', opacity:0.7}}>({f.path})</span>
+                                             </div>
+                                        ))}
+                                    </div>
+                                ) : <span style={{color:'#64748b', fontSize:'0.9rem'}}>No identities found</span>}
+                             </div>
+
+                             <div>
+                                <h4 style={{color:'#94a3b8', fontSize: '0.9rem', textTransform:'uppercase'}}>Fields ({fields.length})</h4>
+                                <div style={{display:'flex', flexDirection:'column', gap:'2px', marginTop:'5px'}}>
+                                    {fields.map((field, idx) => (
+                                        <div key={idx} style={{
+                                            padding: '8px', 
+                                            borderRadius: '4px', 
+                                            background: idx % 2 === 0 ? 'rgba(255,255,255,0.03)' : 'transparent',
+                                            display: 'flex',
+                                            justifyContent: 'space-between'
+                                        }}>
+                                            <span style={{color: '#e2e8f0'}}>{field.name}</span>
+                                            <div style={{display:'flex', gap:'10px'}}>
+                                                <span style={{color: '#94a3b8', fontSize:'0.85rem'}}>{field.type}</span>
+                                                <span style={{color: '#64748b', fontSize:'0.8rem', fontFamily:'monospace'}}>{field.path}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                             </div>
+
+                         </div>
                     ) : (
                         <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', flexDirection: 'column', gap: '10px' }}>
                             <FileJson size={48} opacity={0.5} />
