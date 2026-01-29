@@ -1,0 +1,76 @@
+{
+    "title": "Loyalty Member Schema",
+    "type": "object",
+    "meta:extensible": true,
+    "description": "Schema for Loyalty Members",
+    "required": [
+        "memberId",
+        "status",
+        "tier"
+    ],
+    "properties": {
+        "memberId": {
+            "type": "string",
+            "title": "Member ID",
+            "description": "Unique identifier for the loyalty member.",
+            "xdm:identity": true
+        },
+        "fullName": {
+            "type": "object",
+            "title": "Full Name",
+            "properties": {
+                "firstName": {
+                    "type": "string"
+                },
+                "lastName": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "lastName"
+            ]
+        },
+        "status": {
+            "type": "string",
+            "title": "Status",
+            "enum": [
+                "active",
+                "inactive",
+                "pending"
+            ],
+            "meta:enum": {
+                "active": "Active Member",
+                "inactive": "Inactive Member",
+                "pending": "Pending Activation"
+            }
+        },
+        "tier": {
+            "type": "string",
+            "title": "Tier Level",
+            "enum": [
+                "silver",
+                "gold",
+                "platinum"
+            ]
+        },
+        "points": {
+            "type": "integer",
+            "title": "Points Balance"
+        },
+        "transactions": {
+            "type": "array",
+            "title": "Recent Transactions",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "txnId": {
+                        "type": "string"
+                    },
+                    "amount": {
+                        "type": "number"
+                    }
+                }
+            }
+        }
+    }
+}
